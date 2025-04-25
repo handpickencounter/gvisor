@@ -61,9 +61,23 @@ func NewTTYFileDescription(i *inode) *TTYFileDescription {
 
 // Open re-opens the tty fd, for example via open(/dev/tty). See Linux's
 // tty_repoen().
-func (t *TTYFileDescription) Open(_ context.Context, _ *vfs.Mount, _ *vfs.Dentry, _ vfs.OpenOptions) (*vfs.FileDescription, error) {
-	t.vfsfd.IncRef()
-	return &t.vfsfd, nil
+func (t *TTYFileDescription) Open(_ context.Context, mnt *vfs.Mount, d *vfs.Dentry, opts vfs.OpenOptions) (*vfs.FileDescription, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Create a new TTYFileDescription with the same inode and tty as this one.
+	inode := t.fileDescription.inode
+	fd := &TTYFileDescription{
+		fileDescription: fileDescription{inode: inode},
+		termios:         linux.DefaultReplicaTermios,
+		tty:             t.tty,
+	}
+	fd.LockFD.Init(&inode.locks)
+	vfsfd := &fd.vfsfd
+	if err := vfsfd.Init(fd, opts.Flags, mnt, d, &vfs.FileDescriptionOptions{}); err != nil {
+		return nil, err
+	}
+	return vfsfd, nil
 }
 
 // Release implements fs.FileOperations.Release.
